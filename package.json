@@ -1,0 +1,25 @@
+{
+  "name": "ai-assistant",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Assistant Monorepo",
+  "scripts": {
+    "dev": "pnpm --parallel run dev",
+    "build": "pnpm run build:backend && pnpm run build:frontend",
+    "build:backend": "pnpm --filter backend build",
+    "build:frontend": "pnpm --filter frontend build",
+    "start:backend": "pnpm --filter backend start:prod",
+    "start:frontend": "pnpm --filter frontend start",
+    "install:all": "pnpm install",
+    "clean": "pnpm --parallel run clean",
+    "clean:modules": "find . -name 'node_modules' -type d -prune -exec rm -rf '{}' +"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.13.1",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.0.0"
+  }
+}
