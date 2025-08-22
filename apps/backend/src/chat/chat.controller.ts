@@ -97,10 +97,9 @@ export class ChatController {
   }
 
   @Sse('sessions/:sessionId/stream')
-  async streamResponse(
+  streamResponse(
     @Param('sessionId') sessionId: string,
-    @Headers('last-event-id') lastEventId?: string,
-  ): Promise<Observable<MessageEvent>> {
+  ): Observable<MessageEvent> {
     const session = this.sessionService.getSession(sessionId);
     if (!session) {
       throw new NotFoundException('Session not found');
@@ -122,7 +121,7 @@ export class ChatController {
 
     let fullContent = '';
     const messageStream = new Observable<MessageEvent>((subscriber) => {
-      (async () => {
+      const processStream = async () => {
         try {
           for await (const chunk of streamGenerator) {
             fullContent += chunk;
@@ -156,6 +155,7 @@ export class ChatController {
 
           subscriber.complete();
         } catch (error) {
+          console.log(error);
           subscriber.next({
             data: JSON.stringify({
               type: 'error',
@@ -164,7 +164,18 @@ export class ChatController {
           });
           subscriber.complete();
         }
-      })();
+      };
+
+      // Start processing the stream
+      processStream().catch(() => {
+        subscriber.next({
+          data: JSON.stringify({
+            type: 'error',
+            error: 'Failed to process stream',
+          }),
+        });
+        subscriber.complete();
+      });
     });
 
     return messageStream;
