@@ -1,9 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { v4 as uuidv4 } from 'uuid';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Session, Message } from '../common/interfaces/session.interface';
 
 @Injectable()
 export class SessionService {
+  constructor(private readonly eventEmitter: EventEmitter2) {}
+
   private sessions: Map<string, Session> = new Map();
 
   createSession(): Session {
@@ -51,6 +54,10 @@ export class SessionService {
     }
 
     this.sessions.set(sessionId, session);
+
+    // Emit event for message added
+    this.eventEmitter.emit('message.added', { sessionId, message });
+
     return session;
   }
 

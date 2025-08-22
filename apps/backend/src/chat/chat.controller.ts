@@ -10,20 +10,23 @@ import {
   NotFoundException,
   Res,
   Headers,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import type { Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { SessionService } from '../session/session.service';
-import { AiService } from '../ai/ai.service';
-import type { SendMessageDto } from '../common/interfaces/session.interface';
-import { Message } from '../common/interfaces/session.interface';
+import { SSEConnectionManagerService } from './sse-connection-manager.service';
+import type {
+  SendMessageDto,
+  Message,
+} from '../common/interfaces/session.interface';
 
 @Controller('api/chat')
-export class ChatController {
+export class ChatController implements OnModuleDestroy {
   constructor(
     private readonly sessionService: SessionService,
-    private readonly aiService: AiService,
+    private readonly sseConnectionManager: SSEConnectionManagerService,
   ) {}
 
   @Post('sessions')
@@ -88,7 +91,7 @@ export class ChatController {
     };
     this.sessionService.addMessage(sessionId, userMessage);
 
-    // Return success response
+    // Return success response immediately
     res.status(200).json({
       message: 'Message received',
       sessionId,
@@ -105,80 +108,24 @@ export class ChatController {
       throw new NotFoundException('Session not found');
     }
 
-    // Create assistant message placeholder
-    const assistantMessage: Message = {
-      id: uuidv4(),
-      role: 'assistant',
-      content: '',
-      timestamp: new Date(),
-    };
+    return new Observable<MessageEvent>((subscriber) => {
+      // Add connection to manager
+      this.sseConnectionManager.addConnection(sessionId, subscriber);
 
-    // Generate AI response stream
-    const streamGenerator = this.aiService.generateStreamResponse(
-      session.messages,
-      session.questionsAnswered,
-    );
+      // Send initial connection confirmation
+      subscriber.next({
+        data: JSON.stringify({
+          type: 'connected',
+          sessionId,
+          message: 'SSE connection established',
+        }),
+      });
 
-    let fullContent = '';
-    const messageStream = new Observable<MessageEvent>((subscriber) => {
-      const processStream = async () => {
-        try {
-          for await (const chunk of streamGenerator) {
-            fullContent += chunk;
-            subscriber.next({
-              data: JSON.stringify({
-                type: 'chunk',
-                content: chunk,
-                messageId: assistantMessage.id,
-                sessionId,
-              }),
-            });
-          }
-
-          // Save the complete message
-          assistantMessage.content = fullContent;
-          const updatedSession = this.sessionService.addMessage(
-            sessionId,
-            assistantMessage,
-          );
-
-          // Send completion event
-          subscriber.next({
-            data: JSON.stringify({
-              type: 'complete',
-              messageId: assistantMessage.id,
-              sessionId,
-              isSessionComplete: updatedSession?.isComplete || false,
-              questionsAnswered: updatedSession?.questionsAnswered || 0,
-            }),
-          });
-
-          subscriber.complete();
-        } catch (error) {
-          console.log(error);
-          subscriber.next({
-            data: JSON.stringify({
-              type: 'error',
-              error: 'Failed to generate response',
-            }),
-          });
-          subscriber.complete();
-        }
-      };
-
-      // Start processing the stream
-      processStream().catch(() => {
-        subscriber.next({
-          data: JSON.stringify({
-            type: 'error',
-            error: 'Failed to process stream',
-          }),
-        });
-        subscriber.complete();
+      // Handle client disconnect
+      subscriber.add(() => {
+        this.sseConnectionManager.removeConnection(sessionId, subscriber);
       });
     });
-
-    return messageStream;
   }
 
   @Post('sessions/:sessionId/start')
@@ -204,5 +151,9 @@ export class ChatController {
       message: 'Conversation started',
       sessionId,
     });
+  }
+
+  onModuleDestroy() {
+    this.sseConnectionManager.closeAllConnections();
   }
 }

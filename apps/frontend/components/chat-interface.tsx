@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Send, Loader2, Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,6 +28,16 @@ export function ChatInterface() {
     loadSessions();
   }, []);
 
+  // Cleanup SSE connections on unmount
+  useEffect(() => {
+    return () => {
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
+        eventSourceRef.current = null;
+      }
+    };
+  }, []);
+
   // Scroll to bottom when messages change
   useEffect(() => {
     if (scrollAreaRef.current) {
@@ -47,13 +57,22 @@ export function ChatInterface() {
   const createNewSession = async () => {
     try {
       setIsLoading(true);
-      const newSession = await ChatAPI.createSession();
-      await loadSessions();
-      await selectSession(newSession.id);
+      const session = await ChatAPI.createSession();
+      setSessions((prev) => [session, ...prev]);
+      setCurrentSessionId(session.id);
+      setCurrentSession(null); // Set to null initially
+      setMessages([]);
+      setInput('');
 
-      // Start the conversation automatically
-      await ChatAPI.startConversation(newSession.id);
-      connectToStream(newSession.id);
+      // Connect to SSE immediately after session creation
+      connectToStream(session.id);
+
+      // Start conversation to get initial greeting
+      await ChatAPI.startConversation(session.id);
+
+      // Load the full session details
+      const fullSession = await ChatAPI.getSession(session.id);
+      setCurrentSession(fullSession);
     } catch (error) {
       console.error('Failed to create session:', error);
     } finally {
@@ -63,19 +82,15 @@ export function ChatInterface() {
 
   const selectSession = async (sessionId: string) => {
     try {
-      const sessionDetail = await ChatAPI.getSession(sessionId);
-      setCurrentSession(sessionDetail);
+      const session = await ChatAPI.getSession(sessionId);
+      setCurrentSession(session);
       setCurrentSessionId(sessionId);
-      setMessages(sessionDetail.messages || []);
-      setStreamingMessage('');
+      setMessages(session.messages || []);
 
-      // Disconnect previous stream
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
+      // Connect to SSE for this session
+      connectToStream(sessionId);
     } catch (error) {
-      console.error('Failed to load session:', error);
+      console.error('Failed to select session:', error);
     }
   };
 
@@ -101,13 +116,15 @@ export function ChatInterface() {
   };
 
   const connectToStream = (sessionId: string) => {
+    // Close previous connection if exists
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
+      eventSourceRef.current = null;
     }
 
     const eventSource = ChatAPI.createEventSource(sessionId);
     eventSourceRef.current = eventSource;
-    setIsStreaming(true);
+    setIsStreaming(false);
     setStreamingMessage('');
 
     let accumulatedContent = '';
@@ -116,9 +133,12 @@ export function ChatInterface() {
       try {
         const data = JSON.parse(event.data);
 
-        if (data.type === 'chunk') {
+        if (data.type === 'connected') {
+          console.log('SSE connected for session:', sessionId);
+        } else if (data.type === 'chunk') {
           accumulatedContent += data.content;
           setStreamingMessage(accumulatedContent);
+          setIsStreaming(true);
         } else if (data.type === 'complete') {
           const assistantMessage: Message = {
             id: data.messageId,
@@ -130,8 +150,6 @@ export function ChatInterface() {
           setMessages((prev) => [...prev, assistantMessage]);
           setStreamingMessage('');
           setIsStreaming(false);
-          eventSource.close();
-          eventSourceRef.current = null;
           accumulatedContent = '';
 
           // Update session info
@@ -143,8 +161,6 @@ export function ChatInterface() {
           console.error('Stream error:', data.error);
           setIsStreaming(false);
           setStreamingMessage('');
-          eventSource.close();
-          eventSourceRef.current = null;
           accumulatedContent = '';
         }
       } catch (error) {
@@ -156,8 +172,7 @@ export function ChatInterface() {
       console.error('SSE connection error:', error);
       setIsStreaming(false);
       setStreamingMessage('');
-      eventSource.close();
-      eventSourceRef.current = null;
+      // Don't close connection on error, let it reconnect
     };
   };
 
@@ -176,7 +191,7 @@ export function ChatInterface() {
 
     try {
       await ChatAPI.sendMessage(currentSessionId, userMessage.content);
-      connectToStream(currentSessionId);
+      // SSE connection is already established and will receive the AI response
     } catch (error) {
       console.error('Failed to send message:', error);
     }
@@ -327,8 +342,8 @@ export function ChatInterface() {
               <CardContent className="p-6 text-center">
                 <h2 className="text-2xl font-bold mb-4">Welcome to AI Health Assistant</h2>
                 <p className="text-muted-foreground mb-6">
-                  Start a new session to begin your lifestyle assessment. I'll ask you 5 questions
-                  about your sleep, stress, diet, and exercise habits.
+                  Start a new session to begin your lifestyle assessment. I&apos;ll ask you 5
+                  questions about your sleep, stress, diet, and exercise habits.
                 </p>
                 <Button onClick={createNewSession} size="lg" disabled={isLoading}>
                   {isLoading ? (
