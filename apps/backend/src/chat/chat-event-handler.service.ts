@@ -35,6 +35,12 @@ export class ChatEventHandlerService {
       const session = this.sessionService.getSession(sessionId);
       if (!session) return;
 
+      // Send thinking indicator immediately
+      this.sseConnectionManager.pushToSession(sessionId, {
+        type: 'thinking',
+        sessionId,
+      });
+
       // Create assistant message placeholder
       const assistantMessage: Message = {
         id: uuidv4(),

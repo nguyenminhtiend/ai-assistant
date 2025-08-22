@@ -11,6 +11,26 @@ import { Badge } from '@/components/ui/badge';
 import { ChatAPI, Session, Message, SessionDetail } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
+// Typing indicator component
+function TypingIndicator() {
+  return (
+    <div className="flex justify-start">
+      <Card className="max-w-[80%] bg-muted">
+        <CardContent className="p-3">
+          <div className="flex items-center space-x-1">
+            <span className="text-sm text-muted-foreground">AI is thinking</span>
+            <div className="flex space-x-1 ml-2">
+              <div className="w-2 h-2 bg-muted-foreground rounded-full typing-dot"></div>
+              <div className="w-2 h-2 bg-muted-foreground rounded-full typing-dot"></div>
+              <div className="w-2 h-2 bg-muted-foreground rounded-full typing-dot"></div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
 export function ChatInterface() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [currentSession, setCurrentSession] = useState<SessionDetail | null>(null);
@@ -19,6 +39,7 @@ export function ChatInterface() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isThinking, setIsThinking] = useState(false);
   const [streamingMessage, setStreamingMessage] = useState('');
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -109,6 +130,7 @@ export function ChatInterface() {
         setCurrentSessionId(null);
         setMessages([]);
         setStreamingMessage('');
+        setIsThinking(false);
 
         if (eventSourceRef.current) {
           eventSourceRef.current.close();
@@ -130,6 +152,7 @@ export function ChatInterface() {
     const eventSource = ChatAPI.createEventSource(sessionId);
     eventSourceRef.current = eventSource;
     setIsStreaming(false);
+    setIsThinking(false);
     setStreamingMessage('');
 
     let accumulatedContent = '';
@@ -140,7 +163,12 @@ export function ChatInterface() {
 
         if (data.type === 'connected') {
           console.log('SSE connected for session:', sessionId);
+        } else if (data.type === 'thinking') {
+          setIsThinking(true);
+          setIsStreaming(false);
+          setStreamingMessage('');
         } else if (data.type === 'chunk') {
+          setIsThinking(false);
           accumulatedContent += data.content;
           setStreamingMessage(accumulatedContent);
           setIsStreaming(true);
@@ -155,6 +183,7 @@ export function ChatInterface() {
           setMessages((prev) => [...prev, assistantMessage]);
           setStreamingMessage('');
           setIsStreaming(false);
+          setIsThinking(false);
           accumulatedContent = '';
 
           // Update session info
@@ -165,6 +194,7 @@ export function ChatInterface() {
         } else if (data.type === 'error') {
           console.error('Stream error:', data.error);
           setIsStreaming(false);
+          setIsThinking(false);
           setStreamingMessage('');
           accumulatedContent = '';
         }
@@ -182,7 +212,7 @@ export function ChatInterface() {
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || !currentSessionId || isStreaming) return;
+    if (!input.trim() || !currentSessionId || isStreaming || isThinking) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -193,6 +223,7 @@ export function ChatInterface() {
 
     setMessages((prev) => [...prev, userMessage]);
     setInput('');
+    setIsThinking(false); // Reset thinking state
 
     try {
       await ChatAPI.sendMessage(currentSessionId, userMessage.content);
@@ -306,12 +337,20 @@ export function ChatInterface() {
                   </div>
                 ))}
 
+                {/* Show typing indicator when AI is thinking */}
+                {isThinking && <TypingIndicator />}
+
+                {/* Show streaming message when AI is responding */}
                 {streamingMessage && (
                   <div className="flex justify-start">
                     <Card className="max-w-[80%] bg-muted">
                       <CardContent className="p-3">
                         <p className="text-sm whitespace-pre-wrap">{streamingMessage}</p>
-                        <Loader2 className="h-3 w-3 animate-spin mt-2" />
+                        <div className="flex items-center mt-2 space-x-1">
+                          <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full streaming-dot"></div>
+                          <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full streaming-dot"></div>
+                          <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full streaming-dot"></div>
+                        </div>
                       </CardContent>
                     </Card>
                   </div>
@@ -325,14 +364,20 @@ export function ChatInterface() {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyPress={handleKeyPress}
-                  placeholder="Type your message..."
-                  disabled={isStreaming || currentSession.isComplete}
+                  placeholder={
+                    isThinking
+                      ? 'AI is thinking...'
+                      : isStreaming
+                      ? 'AI is responding...'
+                      : 'Type your message...'
+                  }
+                  disabled={isStreaming || isThinking || currentSession.isComplete}
                 />
                 <Button
                   onClick={sendMessage}
-                  disabled={!input.trim() || isStreaming || currentSession.isComplete}
+                  disabled={!input.trim() || isStreaming || isThinking || currentSession.isComplete}
                 >
-                  {isStreaming ? (
+                  {isStreaming || isThinking ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Send className="h-4 w-4" />
