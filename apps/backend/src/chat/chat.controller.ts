@@ -108,6 +108,11 @@ export class ChatController implements OnModuleDestroy {
       throw new NotFoundException('Session not found');
     }
 
+    // Check if session already has an active connection
+    if (this.sseConnectionManager.isSessionConnected(sessionId)) {
+      throw new NotFoundException('Session already has an active connection');
+    }
+
     return new Observable<MessageEvent>((subscriber) => {
       // Add connection to manager
       this.sseConnectionManager.addConnection(sessionId, subscriber);
@@ -146,9 +151,51 @@ export class ChatController implements OnModuleDestroy {
       });
     }
 
-    // Trigger the initial greeting
+    // Trigger the initial greeting by emitting a message.added event
+    // This will cause the AI to generate the first greeting
+    const initialMessage: Message = {
+      id: uuidv4(),
+      role: 'assistant',
+      content: 'init',
+      timestamp: new Date(),
+    };
+
+    // Add the initial message to trigger AI response
+    this.sessionService.addMessage(sessionId, initialMessage);
+
     res.status(200).json({
       message: 'Conversation started',
+      sessionId,
+    });
+  }
+
+  @Post('sessions/:sessionId/greet')
+  triggerGreeting(@Param('sessionId') sessionId: string, @Res() res: Response) {
+    const session = this.sessionService.getSession(sessionId);
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+
+    // If session already has messages, don't trigger greeting
+    if (session.messages.length > 0) {
+      return res.status(200).json({
+        message: 'Session already has messages',
+        sessionId,
+      });
+    }
+
+    // Trigger the initial greeting
+    const initialMessage: Message = {
+      id: uuidv4(),
+      role: 'assistant',
+      content: 'init',
+      timestamp: new Date(),
+    };
+
+    this.sessionService.addMessage(sessionId, initialMessage);
+
+    res.status(200).json({
+      message: 'Greeting triggered',
       sessionId,
     });
   }

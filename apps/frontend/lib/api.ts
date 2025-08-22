@@ -94,6 +94,19 @@ export class ChatAPI {
     }
   }
 
+  static async triggerGreeting(sessionId: string): Promise<void> {
+    const response = await fetch(`${API_BASE_URL}/chat/sessions/${sessionId}/greet`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to trigger greeting');
+    }
+  }
+
   static createEventSource(sessionId: string): EventSource {
     return new EventSource(`${API_BASE_URL}/chat/sessions/${sessionId}/stream`);
   }

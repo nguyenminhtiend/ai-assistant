@@ -60,7 +60,11 @@ export class AiService {
     questionsAnswered: number,
   ): AsyncGenerator<string> {
     const systemPrompt = this.buildSystemPrompt(questionsAnswered);
-    const conversationHistory = this.formatMessages(messages);
+
+    // Filter out the 'init' message and get actual conversation history
+    const conversationHistory = this.formatMessages(
+      messages.filter((msg) => msg.content !== 'init'),
+    );
 
     const prompt = `${systemPrompt}\n\nConversation History:\n${conversationHistory}`;
 

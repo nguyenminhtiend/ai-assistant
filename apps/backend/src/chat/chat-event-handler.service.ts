@@ -21,8 +21,11 @@ export class ChatEventHandlerService {
   }): Promise<void> {
     const { sessionId, message } = payload;
 
-    // Only generate AI response for user messages
-    if (message.role === 'user') {
+    // Generate AI response for user messages or initial greeting trigger
+    if (
+      message.role === 'user' ||
+      (message.role === 'assistant' && message.content === 'init')
+    ) {
       await this.generateAndPushAIResponse(sessionId);
     }
   }

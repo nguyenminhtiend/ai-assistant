@@ -89,6 +89,11 @@ export function ChatInterface() {
 
       // Connect to SSE for this session
       connectToStream(sessionId);
+
+      // If session has no messages, trigger the initial greeting
+      if (session.messages.length === 0) {
+        await ChatAPI.startConversation(sessionId);
+      }
     } catch (error) {
       console.error('Failed to select session:', error);
     }
