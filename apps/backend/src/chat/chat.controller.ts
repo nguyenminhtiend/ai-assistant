@@ -16,7 +16,7 @@ import { Observable } from 'rxjs';
 import type { Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { SessionService } from '../session/session.service';
-import { SSEConnectionManagerService } from './sse-connection-manager.service';
+import { RedisSSEManagerService } from './redis-sse-manager.service';
 import type {
   SendMessageDto,
   Message,
@@ -26,7 +26,7 @@ import type {
 export class ChatController implements OnModuleDestroy {
   constructor(
     private readonly sessionService: SessionService,
-    private readonly sseConnectionManager: SSEConnectionManagerService,
+    private readonly redisSSEManager: RedisSSEManagerService,
   ) {}
 
   @Post('sessions')
@@ -108,27 +108,36 @@ export class ChatController implements OnModuleDestroy {
       throw new NotFoundException('Session not found');
     }
 
-    // Check if session already has an active connection
-    if (this.sseConnectionManager.isSessionConnected(sessionId)) {
-      throw new NotFoundException('Session already has an active connection');
-    }
-
     return new Observable<MessageEvent>((subscriber) => {
-      // Add connection to manager
-      this.sseConnectionManager.addConnection(sessionId, subscriber);
+      // Try to add connection and acquire Redis lock
+      this.redisSSEManager
+        .addConnection(sessionId, subscriber)
+        .then((success) => {
+          if (!success) {
+            subscriber.error(
+              new Error(
+                'Session already has an active connection or lock could not be acquired',
+              ),
+            );
+            return;
+          }
 
-      // Send initial connection confirmation
-      subscriber.next({
-        data: JSON.stringify({
-          type: 'connected',
-          sessionId,
-          message: 'SSE connection established',
-        }),
-      });
+          // Send initial connection confirmation
+          subscriber.next({
+            data: JSON.stringify({
+              type: 'connected',
+              sessionId,
+              message: 'SSE connection established',
+            }),
+          });
+        })
+        .catch((error) => {
+          subscriber.error(error);
+        });
 
       // Handle client disconnect
       subscriber.add(() => {
-        this.sseConnectionManager.removeConnection(sessionId, subscriber);
+        void this.redisSSEManager.removeConnection(sessionId, subscriber);
       });
     });
   }
@@ -200,7 +209,7 @@ export class ChatController implements OnModuleDestroy {
     });
   }
 
-  onModuleDestroy() {
-    this.sseConnectionManager.closeAllConnections();
+  async onModuleDestroy() {
+    await this.redisSSEManager.closeAllConnections();
   }
 }

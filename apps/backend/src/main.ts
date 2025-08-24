@@ -13,8 +13,24 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'Last-Event-ID'],
   });
 
+  // Enable graceful shutdown
+  app.enableShutdownHooks();
+
   const port = process.env.PORT ?? 3001;
   await app.listen(port);
   console.log(`Backend is running on: http://localhost:${port}`);
+
+  // Handle graceful shutdown
+  process.on('SIGTERM', async () => {
+    console.log('SIGTERM received, shutting down gracefully...');
+    await app.close();
+    process.exit(0);
+  });
+
+  process.on('SIGINT', async () => {
+    console.log('SIGINT received, shutting down gracefully...');
+    await app.close();
+    process.exit(0);
+  });
 }
 bootstrap();

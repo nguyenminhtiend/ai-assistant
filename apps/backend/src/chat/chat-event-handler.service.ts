@@ -3,7 +3,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { v4 as uuidv4 } from 'uuid';
 import { SessionService } from '../session/session.service';
 import { AiService } from '../ai/ai.service';
-import { SSEConnectionManagerService } from './sse-connection-manager.service';
+import { RedisSSEManagerService } from './redis-sse-manager.service';
 import { Message } from '../common/interfaces/session.interface';
 
 @Injectable()
@@ -11,7 +11,7 @@ export class ChatEventHandlerService {
   constructor(
     private readonly sessionService: SessionService,
     private readonly aiService: AiService,
-    private readonly sseConnectionManager: SSEConnectionManagerService,
+    private readonly redisSSEManager: RedisSSEManagerService,
   ) {}
 
   @OnEvent('message.added')
@@ -35,8 +35,8 @@ export class ChatEventHandlerService {
       const session = this.sessionService.getSession(sessionId);
       if (!session) return;
 
-      // Send thinking indicator immediately
-      this.sseConnectionManager.pushToSession(sessionId, {
+      // Send thinking indicator immediately via Redis
+      await this.redisSSEManager.broadcastToSession(sessionId, {
         type: 'thinking',
         sessionId,
       });
@@ -57,10 +57,10 @@ export class ChatEventHandlerService {
 
       let fullContent = '';
 
-      // Stream chunks to existing SSE connections
+      // Stream chunks to existing SSE connections via Redis
       for await (const chunk of streamGenerator) {
         fullContent += chunk;
-        this.sseConnectionManager.pushToSession(sessionId, {
+        await this.redisSSEManager.broadcastToSession(sessionId, {
           type: 'chunk',
           content: chunk,
           messageId: assistantMessage.id,
@@ -75,8 +75,8 @@ export class ChatEventHandlerService {
         assistantMessage,
       );
 
-      // Send completion event
-      this.sseConnectionManager.pushToSession(sessionId, {
+      // Send completion event via Redis
+      await this.redisSSEManager.broadcastToSession(sessionId, {
         type: 'complete',
         messageId: assistantMessage.id,
         sessionId,
@@ -85,7 +85,7 @@ export class ChatEventHandlerService {
       });
     } catch (error) {
       console.error('Error generating AI response:', error);
-      this.sseConnectionManager.pushToSession(sessionId, {
+      await this.redisSSEManager.broadcastToSession(sessionId, {
         type: 'error',
         error: 'Failed to generate response',
         sessionId,

@@ -2,7 +2,8 @@ import { Module } from '@nestjs/common';
 import { ChatController } from './chat.controller';
 import { SessionModule } from '../session/session.module';
 import { AiModule } from '../ai/ai.module';
-import { SSEConnectionManagerService } from './sse-connection-manager.service';
+import { RedisPubSubService } from './redis-pubsub.service';
+import { RedisSSEManagerService } from './redis-sse-manager.service';
 import { ChatEventsService } from './chat-events.service';
 import { ChatEventHandlerService } from './chat-event-handler.service';
 
@@ -10,7 +11,8 @@ import { ChatEventHandlerService } from './chat-event-handler.service';
   imports: [SessionModule, AiModule],
   controllers: [ChatController],
   providers: [
-    SSEConnectionManagerService,
+    RedisPubSubService,
+    RedisSSEManagerService,
     ChatEventsService,
     ChatEventHandlerService,
   ],
