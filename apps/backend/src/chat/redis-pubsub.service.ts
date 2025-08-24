@@ -1,6 +1,19 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import Redis, { RedisOptions } from 'ioredis';
 import { EventEmitter } from 'events';
+
+// Using require to avoid TypeScript module resolution issues with ioredis
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const Redis = require('ioredis');
+
+interface RedisOptions {
+  host?: string;
+  port?: number;
+  maxRetriesPerRequest?: number;
+}
 
 export interface RedisMessage {
   type: 'thinking' | 'chunk' | 'complete' | 'error' | 'connected';
@@ -15,8 +28,8 @@ export interface RedisMessage {
 
 @Injectable()
 export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
-  private publisher!: any;
-  private subscriber!: any;
+  private publisher: any;
+  private subscriber: any;
   private eventEmitter = new EventEmitter();
   private serverId: string;
   private subscribedChannels = new Set<string>();
@@ -31,9 +44,7 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
       maxRetriesPerRequest: 3,
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
     this.publisher = new Redis(redisOptions);
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call
     this.subscriber = new Redis(redisOptions);
   }
 
@@ -43,7 +54,6 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
     // The connection will be established automatically on first operation
 
     // Listen for messages
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     this.subscriber.on('message', (channel: string, message: string) => {
       try {
         const data: RedisMessage = JSON.parse(message) as RedisMessage;
@@ -64,9 +74,7 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
       await this.unsubscribe(channel);
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     await this.publisher.quit();
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     await this.subscriber.quit();
   }
 
@@ -79,8 +87,7 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
     const lockKey = `lock:${channelName}`;
 
     // Try to acquire lock with 30 minute expiration
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
-    const lockAcquired: string | null = await this.publisher.set(
+    const lockAcquired = await this.publisher.set(
       lockKey,
       this.serverId,
       'PX', // milliseconds
@@ -109,7 +116,7 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
     const lockKey = `lock:${channelName}`;
 
     // Check if we own the lock
-    const lockOwner: string | null = await this.publisher.get(lockKey);
+    const lockOwner = await this.publisher.get(lockKey);
     if (lockOwner === this.serverId) {
       await this.publisher.del(lockKey);
     }
@@ -165,7 +172,7 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
    */
   async isSessionLocked(sessionId: string): Promise<boolean> {
     const lockKey = `lock:session:${sessionId}`;
-    const lockExists: number = await this.publisher.exists(lockKey);
+    const lockExists = await this.publisher.exists(lockKey);
     return lockExists === 1;
   }
 
@@ -182,7 +189,7 @@ export class RedisPubSubService implements OnModuleInit, OnModuleDestroy {
    */
   async extendSessionLock(sessionId: string): Promise<boolean> {
     const lockKey = `lock:session:${sessionId}`;
-    const lockOwner: string | null = await this.publisher.get(lockKey);
+    const lockOwner = await this.publisher.get(lockKey);
 
     if (lockOwner === this.serverId) {
       await this.publisher.pexpire(lockKey, 30 * 60 * 1000); // 30 minutes
